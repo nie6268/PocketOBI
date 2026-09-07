@@ -12,8 +12,6 @@ wiring/pinout, which lives in [`../HARDWARE.md`](../HARDWARE.md) and the main
 
 First fabricated and **bench-validated** revision — Gerbers dated **2026-08-05**
 (`gerber/PocketOBI-HW-gerbers-2026-08-05.zip`). This is the exact set that was ordered and
-tested. The KiCad sources have since had minor top-copper cleanup only; pads, vias, drill
-holes and the bottom-copper routing are unchanged.
 
 ## What's here
 
@@ -23,8 +21,6 @@ holes and the bottom-copper routing are unchanged.
 | `gerber/*.gbr`, `*.drl` | the same layers, extracted, for inspection |
 | `PocketOBI-HW-schematic.pdf` | the schematic — to read and troubleshoot, not editable |
 | `PocketOBI-HW-BOM.csv` | bill of materials (6 parts) |
-
-The editable KiCad sources are not published — buildable, not forkable, by choice.
 
 ## Order the board
 
