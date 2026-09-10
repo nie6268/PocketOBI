@@ -188,6 +188,9 @@ If the home screen shows "No battery found", check wiring and use
 Menu → Read battery. "Comm error" / all-`0xFF` means the pack's BMS is not
 responding (dead, or not an OBI-compatible pack).
 
+Still not reading a pack? See **[TROUBLESHOOTING.md](TROUBLESHOOTING.md)** — a
+step-by-step multimeter guide to wiring and no-comms faults.
+
 ## Unlock / repair
 
 Some packs refuse to charge even though their cells are healthy and balanced:
