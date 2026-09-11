@@ -1,4 +1,9 @@
-# Troubleshooting — "No battery found" / "Comm error"
+# Troubleshooting
+
+Two common situations, each with its own section below: a build that **won't read a
+pack**, and **bridge mode not connecting** to a PC.
+
+## Won't read a pack — "No battery found" / "Comm error"
 
 **Read this if PocketOBI powers up and shows the interface, but won't read a pack** —
 the home screen stays on "No battery found", or you get "Comm error" / all-`0xFF`.
@@ -102,6 +107,29 @@ What's left:
 | Continuity lands on the wrong contacts | **DATA / ENABLE swapped** (Step 4) |
 | Reads once, then "No battery found" | Flaky ground (Step 5) |
 | All checks pass, still nothing | Pull-up value, or read the serial log (Step 6) |
+
+## Bridge mode won't connect (PC app / PackScope)
+
+You put PocketOBI in **PC bridge** mode, the PC sees the COM port, you click Connect — and it
+just hangs ("opening… / waiting for connect"). Work through these in order:
+
+1. **Did you flash with `USB CDC On Boot: Enabled`?** This is the #1 cause when you built it
+   yourself. Without it the ESP32-C3 can't carry the serial link over USB, so the app waits
+   forever even though a COM port shows up. Re-flash with it turned on — it is set in the
+   Arduino IDE before uploading (see the Build & flash steps in the
+   [README](README.md#build--flash)).
+2. **Is the device on the PC bridge screen, showing "Active / green"?** PocketOBI only answers
+   the PC while that screen is up. Turning the encoder there toggles it — make sure it is not
+   showing "Inactive".
+3. **Does opening the port reboot the board out of bridge mode?** Most PC apps pulse the USB
+   reset line when they open the port, which reboots the ESP32-C3 back to the menu, so the
+   handshake never lands. Two fixes:
+   - On the device, **Tools → Settings → "PC bridge at boot" = ON**, then reconnect — after the
+     reset it boots straight back into bridge mode and answers.
+   - Or use **[PackScope](https://github.com/TheRepairforge/PackScope)**, our companion app,
+     which opens the port **without** resetting the board.
+4. **Is another program holding the COM port?** The Arduino IDE **Serial Monitor** will keep the
+   port and block the app — close it. And use a **data** USB cable, not charge-only.
 
 ---
 
