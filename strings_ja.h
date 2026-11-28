@@ -182,6 +182,7 @@ const char* const STRTAB_JA[] = {
   /*S_LBL_HOWTO*/             "使い方", // EN: "How to"
   /*S_HOWTO_CAP*/             "Arduino OBI＋このCOMポート", // EN: "Arduino OBI interface + this COM port"
   /*S_W_F0513_UNVALIDATED*/   "F0513: 解除が維持されない場合があります", // EN: "F0513 chip: unlock may not hold."
+  /*S_EST_CYCLES*/            nullptr, // EN: "est. from cycles"
   /*S_DEG_C*/                 "℃", // EN: "C"
 };
 static_assert(sizeof(STRTAB_JA) / sizeof(STRTAB_JA[0]) == S_COUNT,

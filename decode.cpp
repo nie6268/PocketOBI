@@ -158,10 +158,26 @@ bool readF0513Cells() {
   bat.cell[2] = le16(c3, 0) / 1000.0;
   bat.cell[3] = le16(c4, 0) / 1000.0;
   bat.cell[4] = le16(c5, 0) / 1000.0;
+  // A cell under CELL_V_SENSE is read again before it counts (#86): a BL1830 once answered 00 00 for
+  // C1 and C2 on one read in ~20 (the others normal), and a 0 V cell gives a sense-wire verdict. A
+  // broken sense wire reads 0 V every time, so it survives the re-reads; a missed answer does not.
+  static const uint8_t *const VCELL_CMD[5] = { F0513_VCELL1_CMD, F0513_VCELL2_CMD, F0513_VCELL3_CMD,
+                                               F0513_VCELL4_CMD, F0513_VCELL5_CMD };
+  bool anyLive = false;   // every cell at 0 V is a failed read anyway (rejected below): no re-reads
+  for (int i = 0; i < cellCount; i++) if (bat.cell[i] >= CELL_V_SENSE) anyLive = true;
+  for (int i = 0; anyLive && i < cellCount; i++) {
+    for (uint8_t r = 0; r < F0513_ZERO_REREADS && bat.cell[i] < CELL_V_SENSE; r++) {
+      uint8_t c[2];
+      if (sendCommand(VCELL_CMD[i], c)) bat.cell[i] = le16(c, 0) / 1000.0;
+    }
+  }
   // A silent model leaves cellCount at 5, but a 14.4 V pack has no fifth cell: on a BL1440 (#43)
   // its fifth reading is 6.5 V, not a cell. Four plausible cells plus a fifth above a cell but
   // well below a dropped read (0xFFFF-ish, 62-65 V) = a 4S pack: read it as one (read-only).
-  if (cellCount == 5 && bat.cell[4] > CELL_V_IMPLAUS && bat.cell[4] < 10.0f) {
+  // Only for a silent model: an identified 5S pack (F0513 "BLxxxx", or an ASCII BL18xx whose D7 read
+  // fell back here) with a high fifth reading has a sense-tap fault, and must stay a rejected read.
+  if (cellCount == 5 && strcmp(bat.model, "LXT ?") == 0 &&
+      bat.cell[4] > CELL_V_IMPLAUS && bat.cell[4] < 10.0f) {
     bool fourOk = true;
     for (int i = 0; i < 4; i++) if (bat.cell[i] < 2.0f || bat.cell[i] > CELL_V_IMPLAUS) fourOk = false;
     if (fourOk) { cellCount = 4; bat.cell[4] = 0; }
@@ -293,10 +309,13 @@ HwFault findHardwareFault(int *group, char *action, size_t n) {
       if (action) snprintf(action, n, tr(S_ACT_WEAK), i + 1);
       return HW_WEAK_CELL;
     }
-  // Imbalance: spread too wide -> name the lowest group.
+  // Imbalance: spread too wide -> name the lowest group. An F0513 cell is never an absent slot
+  // (cellCount bounds the loop): at 0 V after its re-reads it is the lowest group, and naming
+  // the lowest one above 0.1 V pointed at a healthy group (#88).
   if (bat.cellDiff > DIFF_BAD) {
     int lo = 0; float mn = 9.0f;
-    for (int i = 0; i < cellCount; i++) if (bat.cell[i] > 0.1f && bat.cell[i] < mn) { mn = bat.cell[i]; lo = i; }
+    for (int i = 0; i < cellCount; i++)
+      if ((isF0513 || bat.cell[i] > 0.1f) && bat.cell[i] < mn) { mn = bat.cell[i]; lo = i; }
     *group = lo + 1;
     if (action) snprintf(action, n, tr(S_ACT_IMB), lo + 1);
     return HW_IMBALANCE;
@@ -401,7 +420,7 @@ void readExtended() {
   bat.asmY = 0; bat.asmM = 0; bat.asmD = 0;     // else an F0513 pack shows the previous pack's date
   if (!bat.valid || strcmp(bat.commandVersion, "F0513") == 0) return;
 
-  digitalWrite(ENABLE_PIN, HIGH); delay(400);
+  enableOn(); delay(400);
   makita.reset(); delayMicroseconds(400);
   mkWrite(0x33); mkWrite(0xD9); mkWrite(0x96); mkWrite(0xA5); delay(20);   // TESTMODE
 
@@ -425,7 +444,7 @@ void readExtended() {
 
   makita.reset(); delayMicroseconds(400);
   mkWrite(0xCC); mkWrite(0xD9); mkWrite(0xFF); mkWrite(0xFF);              // TESTMODE exit
-  digitalWrite(ENABLE_PIN, LOW);
+  enableOff();
 
   // Some old packs answer the AA frame + F0513 cells but NOT the CC-addressed D4/D6 reads:
   // those read back 0xFF or unstable noise. A 0xFF over-discharge count (255) means the D4

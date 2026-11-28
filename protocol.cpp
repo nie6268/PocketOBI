@@ -8,6 +8,7 @@
 #include "display.h"
 #include "ui_nav.h"
 #include "bridge.h"
+#include "esp_timer.h"
 
 // ---------- Protocol commands (from makita_lxt.py, upstream OBI tag v0.2.3) ----------
 const uint8_t MODEL_CMD[]       = {0x01, 0x02, 0x10, 0xCC, 0xDC, 0x0C};
@@ -45,6 +46,105 @@ uint8_t nibbleSwap(uint8_t b) {
 uint16_t le16(const uint8_t *buf, int idx) {
   return buf[idx] | (buf[idx + 1] << 8);
 }
+// ENABLE line states (#41).
+// During a transaction ENABLE is driven: high + 400 ms before it, low after it, exactly as
+// before. Between operations it is no longer held low: once the bus has been quiet for
+// ENABLE_IDLE_MS, a one-shot timer releases the pin (input, nothing driving it), so the board
+// pull-up holds the line high. Some older packs keep switching their output on and off for as
+// long as ENABLE is held low after an error clear or a cell read; released, they stay quiet.
+// The timer, not loop(), does the release: after an operation the screen is drawn before loop()
+// runs again (~200 ms), which held the line low that long (scope, #41 test5). loop() still
+// calls enableIdleTick() as a fallback.
+// ENABLE_IDLE_MS sits above the 30 ms gaps between the commands of one operation (Reset error,
+// the unlock writes), so the line inside an operation is unchanged; only the end releases.
+// Coming back from a release, the line is driven low for ENABLE_REARM_MS first, so the
+// pack still sees the same low-to-high edge before the first command as it did before.
+// Both lows stay under ~50 ms: held low longer than that, the same old packs start
+// switching again (scope, #41 test4). busPowerCycle()'s 100 ms low is deliberate and kept.
+#define ENABLE_REARM_MS  25
+// The release runs in the esp_timer task; on dual-core boards that task can be on the other core
+// while loop() starts a command. One mutex covers the pin and the flags, and the callback only
+// releases while it is still armed: a release that lost the race to enableOn()/enableOff() does
+// nothing, instead of turning the pin into an input in the middle of a transaction (#88).
+// The callback runs in task context, so a FreeRTOS mutex is allowed there.
+#ifdef POCKETOBI_HOSTSIM
+#define ENABLE_LOCK()
+#define ENABLE_UNLOCK()
+#else
+static SemaphoreHandle_t enableMutex = nullptr;
+#define ENABLE_LOCK()   do { if (!enableMutex) enableMutex = xSemaphoreCreateMutex(); \
+                             if (enableMutex) xSemaphoreTake(enableMutex, portMAX_DELAY); } while (0)
+#define ENABLE_UNLOCK() do { if (enableMutex) xSemaphoreGive(enableMutex); } while (0)
+#endif
+static volatile bool enableReleased = false;
+static volatile bool enableArmed = false;     // a release is pending (timer started, not cancelled)
+static uint32_t enableLastOff = 0;
+static uint16_t enableIdleMs = ENABLE_IDLE_MS;
+static esp_timer_handle_t enableTimer = nullptr;
+static void enableRelease(void *) {
+  ENABLE_LOCK();
+  if (enableArmed && !enableReleased) {
+    pinMode(ENABLE_PIN, INPUT);
+    enableReleased = true;
+  }
+  enableArmed = false;
+  ENABLE_UNLOCK();
+}
+static void enableTimerStop() {               // caller holds the lock
+  enableArmed = false;
+  if (enableTimer) esp_timer_stop(enableTimer);
+}
+void enableOn() {
+  ENABLE_LOCK();
+  enableTimerStop();
+  const bool rearm = enableReleased;
+  if (rearm) {
+    digitalWrite(ENABLE_PIN, LOW);
+    pinMode(ENABLE_PIN, OUTPUT);
+    enableReleased = false;
+  }
+  ENABLE_UNLOCK();
+  if (rearm) delay(ENABLE_REARM_MS);
+  digitalWrite(ENABLE_PIN, HIGH);
+}
+void enableOff(bool release, uint16_t idleMs) {
+  ENABLE_LOCK();
+  enableTimerStop();
+  digitalWrite(ENABLE_PIN, LOW);
+  if (enableReleased) {
+    pinMode(ENABLE_PIN, OUTPUT);
+    enableReleased = false;
+  }
+  enableLastOff = millis();
+  enableIdleMs = idleMs;
+  if (release) {                              // release=false: held low on purpose (busPowerCycle)
+    if (!enableTimer) {
+      esp_timer_create_args_t a = {};
+      a.callback = enableRelease;
+      a.name = "enable";
+      if (esp_timer_create(&a, &enableTimer) != ESP_OK) enableTimer = nullptr;
+    }
+    if (enableTimer && esp_timer_start_once(enableTimer, idleMs * 1000ULL) == ESP_OK) enableArmed = true;
+  }
+  ENABLE_UNLOCK();
+}
+// Boot: ENABLE driven low (no pack read at boot), then released by the idle timer like after any
+// operation, so the 1.5 s splash does not hold it low (#41).
+void enableBoot() {
+  pinMode(ENABLE_PIN, OUTPUT);
+  digitalWrite(ENABLE_PIN, LOW);
+  enableOff();
+}
+void enableIdleTick() {
+  if (enableReleased || millis() - enableLastOff < enableIdleMs) return;
+  ENABLE_LOCK();
+  if (!enableReleased) {
+    enableTimerStop();
+    pinMode(ENABLE_PIN, INPUT);
+    enableReleased = true;
+  }
+  ENABLE_UNLOCK();
+}
 // Run a command in the [0x01, len, rsp_len, cmd, data...] layout (identical to
 // the makita_lxt.py arrays). Fills outPayload with the payload, and romIdOut
 // (optional, 8 bytes) if cmd == 0x33. Returns false only if the response is
@@ -55,7 +155,7 @@ bool sendCommand(const uint8_t *c, uint8_t *outPayload, uint8_t *romIdOut) {  //
   uint8_t cmdByte = c[3];
   const uint8_t *data = &c[4];
 
-  digitalWrite(ENABLE_PIN, HIGH);
+  enableOn();
   delay(400);
 
   bool present = makita.reset();
@@ -96,7 +196,7 @@ bool sendCommand(const uint8_t *c, uint8_t *outPayload, uint8_t *romIdOut) {  //
   Serial.println();
 #endif
 
-  digitalWrite(ENABLE_PIN, LOW);
+  enableOff();
 
   // "Nothing connected / no answer" = the whole payload reads back 0xFF.
   for (int i = 0; i < payloadLen; i++) {
@@ -125,7 +225,7 @@ bool sendCommandRetry(const uint8_t *c, uint8_t *outPayload, uint8_t *romIdOut, 
 // The storage order is reversed in the official firmware (rsp[3] then rsp[2]),
 // hence the model shown as "BL" + byte2 + byte1.
 bool readF0513Raw(uint8_t cmdByte, uint8_t *byte1, uint8_t *byte2) {
-  digitalWrite(ENABLE_PIN, HIGH);
+  enableOn();
   delay(400);
 
   makita.reset(); // presence pulse ignored (see sendCommand note)
@@ -140,7 +240,7 @@ bool readF0513Raw(uint8_t cmdByte, uint8_t *byte1, uint8_t *byte2) {
   *byte1 = mkRead();
   *byte2 = mkRead();
 
-  digitalWrite(ENABLE_PIN, LOW);
+  enableOff();
 
   // Both bytes 0xFF => nothing answered.
   return !(*byte1 == 0xFF && *byte2 == 0xFF);
@@ -150,11 +250,11 @@ bool readF0513Raw(uint8_t cmdByte, uint8_t *byte1, uint8_t *byte2) {
 // the ENABLE line only; it does NOT reset the BMS's own state (a true reset needs
 // physically removing the pack).
 void busPowerCycle() {
-  digitalWrite(ENABLE_PIN, LOW);
+  enableOff(false);                     // the 100 ms low is the power cycle: no release inside it
   delay(100);
-  digitalWrite(ENABLE_PIN, HIGH);
+  enableOn();
   delay(150);
-  digitalWrite(ENABLE_PIN, LOW);
+  enableOff();
 }
 // Error reset. Base sequence from on_reset_errors_click() (TESTMODE + RESET),
 // extended with the test-mode exit + bus power-cycle so the BMS actually commits
@@ -172,7 +272,7 @@ void resetErrors() {
 // otherwise dropping ENABLE between the two exits test mode and the LED command is ignored.
 // Both are 0x33-style: reset, write 0x33, read 8 ROM bytes, write data, read 1.
 void ledsSet(bool on) {
-  digitalWrite(ENABLE_PIN, HIGH);
+  enableOn();
   delay(400);
   makita.reset(); delayMicroseconds(400);               // TESTMODE
   mkWrite(0x33); for (int i = 0; i < 8; i++) mkRead();
@@ -181,7 +281,7 @@ void ledsSet(bool on) {
   makita.reset(); delayMicroseconds(400);               // LED on/off (DA 31 / DA 34)
   mkWrite(0x33); for (int i = 0; i < 8; i++) mkRead();
   mkWrite(0xDA); mkWrite(on ? 0x31 : 0x34); mkRead();
-  digitalWrite(ENABLE_PIN, LOW);
+  enableOff();
 }
 void ledsOn()  { ledsSet(true); }
 void ledsOff() { ledsSet(false); }

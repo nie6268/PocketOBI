@@ -178,6 +178,7 @@ const char* const STRTAB_VI[] = {
   /*S_LBL_HOWTO*/             "Cách dùng", // EN: "How to"
   /*S_HOWTO_CAP*/             "Giao diện Arduino OBI + cổng COM này", // EN: "Arduino OBI interface + this COM port"
   /*S_W_F0513_UNVALIDATED*/   "F0513: có thể không duy trì", // EN: "F0513 chip: unlock may not hold."
+  /*S_EST_CYCLES*/            nullptr, // EN: "est. from cycles"
   /*S_DEG_C*/                 nullptr, // EN: "C"
 };
 static_assert(sizeof(STRTAB_VI) / sizeof(STRTAB_VI[0]) == S_COUNT,

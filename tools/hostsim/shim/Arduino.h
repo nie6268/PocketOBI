@@ -77,12 +77,19 @@ private:
 class HardwareSerial : public Print {
 public:
   void begin(unsigned long) {}
-  int available() { return 0; }
-  int read() { return -1; }
-  int peek() { return -1; }
+  // Host tests feed PC-bridge frames here (shimSerialFeed); empty otherwise.
+  int available() { return (int)(rxLen_ - rxPos_); }
+  int read() { return rxPos_ < rxLen_ ? rx_[rxPos_++] : -1; }
+  int peek() { return rxPos_ < rxLen_ ? rx_[rxPos_] : -1; }
+  void shimFeed(const uint8_t *b, size_t n) {
+    rxLen_ = rxPos_ = 0;
+    for (size_t i = 0; i < n && i < sizeof(rx_); i++) rx_[rxLen_++] = b[i];
+  }
   void flush() {}
   size_t write(uint8_t) override { return 1; }   // silent: the sim prints its own log
   using Print::write;
   operator bool() const { return true; }
+private:
+  uint8_t rx_[128]; size_t rxLen_ = 0, rxPos_ = 0;
 };
 extern HardwareSerial Serial;

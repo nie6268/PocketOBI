@@ -203,14 +203,50 @@ void touchFeedback(int x, int y) {
   tft.drawCircle(x, y,  7, COL_ACCENT);
   delay(40);
 }
-// On-device touch calibration: tap three corner targets, recompute the four corner
-// raw values (edge-extrapolated from a 20px inset) and persist them to NVS. Called
+// Calibration intro (#83): say what is about to happen, start on an OK tap. The tap is taken
+// ANYWHERE on the panel, not hit-tested on the button: calibration is opened precisely when the
+// mapping may be wrong, so a hit test could make OK unreachable. Existing strings only (title,
+// "Tap the target", "Tap: continue"); the three targets are shown as a picture, not in words.
+static void calibrateIntro() {
+  tft.fillScreen(COL_BG);
+  drawHeader(tr(S_CALIBRATE), iconSettings);
+  // A small screen with the three targets in their corners, numbered in tap order.
+  const int pw = 96, ph = 64, px = (SCREEN_W - pw) / 2, py = HEADER_H + SP_3;
+  tft.drawRoundRect(px, py, pw, ph, RADIUS_SM, COL_BORDER);
+  const int m = 11;
+  const int cx[3] = { px + m, px + pw - 1 - m, px + m };
+  const int cy[3] = { py + m, py + m, py + ph - 1 - m };
+  tft.setFont(NULL); tft.setTextSize(1);
+  for (int i = 0; i < 3; i++) {
+    tft.drawCircle(cx[i], cy[i], 5, COL_ACCENT);
+    tft.drawFastHLine(cx[i] - 8, cy[i], 17, COL_ACCENT);
+    tft.drawFastVLine(cx[i], cy[i] - 8, 17, COL_ACCENT);
+    tft.setTextColor(COL_MUTED);
+    tft.setCursor(cx[i] + (i == 1 ? -18 : 12), cy[i] + (i == 2 ? -12 : 4));
+    tft.print(i + 1);
+  }
+  gfxCenter(FONT_LEVEL3, SCREEN_W / 2, py + ph + SP_3 + 14, tr(S_CAL_TAP), COL_TEXT);
+  const int bw = 120, by = SCREEN_H - FOOTER_H - SP_3 - BTN_H;
+  drawButton((SCREEN_W - bw) / 2, by, bw, BTN_H, "OK", true);
+  drawFooterHint(tr(S_T_TAP_CONTINUE));
+  while (touch.touched()) delay(10);          // release the tap that opened Calibrate first
+  delay(60);
+  for (;;) {                                  // then wait for a firm tap, anywhere
+    if (touch.touched()) { TS_Point p = touch.getPoint(); if (p.z >= TOUCH_Z_MIN) break; }
+    delay(5);
+  }
+  while (touch.touched()) delay(10);          // and its release, so it is not target 1
+  delay(150);
+}
+// On-device touch calibration: after the intro, tap three corner targets, recompute the four
+// corner raw values (edge-extrapolated from a 20px inset) and persist them to NVS. Called
 // from Settings > Calibrate; blocks until done, then the caller redraws.
 void calibrateTouch() {
   const int M = 20;
   const int tx[3] = { M, SCREEN_W - 1 - M, M };       // TL, TR, BL target centres
   const int ty[3] = { M, M, SCREEN_H - 1 - M };
   int rx[3], ry[3];
+  calibrateIntro();
   for (int i = 0; i < 3; i++) {
     tft.fillScreen(COL_BG);
     tft.setTextSize(1); tft.setTextColor(COL_TEXT, COL_BG);
@@ -353,6 +389,7 @@ void serviceTouch() {
     if (state == TOOLS && touchHitIndex(state, sx, sy) == TOUCH_NEXT_PAGE) {   // tap under the rows = other page
       toolIndex = (toolIndex < 3) ? 3 : 0; render(); return;
     }
+    if (state == SETTINGS && touchHitIndex(state, sx, sy) < 0) { render(); return; }   // under the rows: nothing
     activate(state, touchHitIndex(state, sx, sy));
     render();
   } else if (!now) {

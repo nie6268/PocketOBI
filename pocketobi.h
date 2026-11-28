@@ -39,8 +39,8 @@
 // consistent with it.
 #define FW_VER_MAJOR 2
 #define FW_VER_MINOR 9
-#define FW_VER_PATCH 0
-#define FW_VERSION "2.9.0"
+#define FW_VER_PATCH 1
+#define FW_VERSION "2.9.1"
 
 // Companion-app compatibility-contract version. Distinct from FW_VERSION: it bumps
 // ONLY when the coupling with the companion app changes — a bridge command is
@@ -170,6 +170,8 @@ enum { LF_CS0 = 0x01, LF_CS2 = 0x02, LF_N34 = 0x04, LF_CS1 = 0x08 };
 // A cell reading near 0 V while the pack voltage is normal = a broken SENSE wire on
 // that group (the cell itself is almost never truly at 0 V in a live pack).
 #define CELL_V_SENSE 0.50f
+// F0513 path: how many times a cell under CELL_V_SENSE is read again before it counts (#86).
+#define F0513_ZERO_REREADS 2
 // Read plausibility (#54, #50). A Li-ion cell never reads above CELL_V_IMPLAUS and a pack never
 // above cellCount * PACK_V_IMPLAUS_PER_CELL (22 V for a 5S LXT). A value past either is a
 // marginal / partly unanswered read (bytes trending to 0xFF), reported as no read, never decoded.

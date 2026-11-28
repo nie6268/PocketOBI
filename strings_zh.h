@@ -182,6 +182,7 @@ const char* const STRTAB_ZH[] = {
   /*S_LBL_HOWTO*/             "操作方法", // EN: "How to"
   /*S_HOWTO_CAP*/             "Arduino OBI 接口 + 此 COM 端口", // EN: "Arduino OBI interface + this COM port"
   /*S_W_F0513_UNVALIDATED*/   "F0513 芯片：解锁后可能再次锁定。", // EN: "F0513 chip: unlock may not hold."
+  /*S_EST_CYCLES*/            nullptr, // EN: "est. from cycles"
   /*S_DEG_C*/                 nullptr, // EN: "C"
 };
 static_assert(sizeof(STRTAB_ZH) / sizeof(STRTAB_ZH[0]) == S_COUNT,

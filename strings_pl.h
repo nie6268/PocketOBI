@@ -177,6 +177,7 @@ const char* const STRTAB_PL[] = {
   /*S_LBL_HOWTO*/             "Jak używać", // EN: "How to"
   /*S_HOWTO_CAP*/             "Interfejs Arduino OBI + ten port COM", // EN: "Arduino OBI interface + this COM port"
   /*S_W_F0513_UNVALIDATED*/   "Chip F0513: może nie utrzymać.", // EN: "F0513 chip: unlock may not hold."
+  /*S_EST_CYCLES*/            "szacowane z cykli", // EN: "est. from cycles" (ours, provisional)
   /*S_DEG_C*/                 nullptr, // EN: "C"
 };
 static_assert(sizeof(STRTAB_PL) / sizeof(STRTAB_PL[0]) == S_COUNT,

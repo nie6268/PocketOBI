@@ -6,6 +6,50 @@ Versioning follows [Semantic Versioning](https://semver.org/): MAJOR.MINOR.PATCH
 The version is defined in `pocketobi.h` as `FW_VERSION` and shown
 on the boot splash and the About screen.
 
+## [2.9.1] - 2026-11-28
+
+### Added
+- **Touch boards, Settings > Calibrate:** an intro screen first (the three numbered targets, "Tap the target",
+  an OK button); calibration starts only on a tap. It used to start at once (yukonx, #43).
+
+### Changed
+- Russian: the unlock result header reads "Итог разблокировки", kmklpd-maker's wording (#37).
+- Russian: the pack is "Батарея" (feminine) throughout, with "АКБ" kept only where the full word does not fit,
+  and every ending agrees with it: "ИСПРАВНА", "РАЗБЛОКИРОВАНА", "Выпущена"... (kmklpd-maker, #37). The toast
+  shown when a different pack is found before a write reads "Батарея заменена".
+- The caption under the Condition gauge ("est. from cycles") is now translated; it was English in every
+  language (kmklpd-maker, #37).
+- Russian: the card label "Verdict now" reads "Вердикт сейчас", and the verdict for a locked pack that an
+  unlock should clear reads "НУЖНА РАЗБЛОКИРОВКА" (what the pack needs, not an order) (kmklpd-maker, #37).
+
+### Fixed
+- **Older packs that pulse their output after a read** (scp38, #41): ENABLE is no longer held low between
+  operations. Once the bus has been quiet for 35 ms the line is released (the board pull-up holds it high),
+  and before the next command it goes low for 25 ms, then high as before. The release no longer waits for the
+  screen to be drawn, which kept the line low for about 220 ms after a read. The gaps inside one operation and
+  the 100 ms bus power-cycle after Reset error are unchanged; during an unlock the line stays low from the
+  write's store through the power-cycle that commits it, as before. At power-on the line is released during
+  the splash instead of staying low for 1.5 s. Over the PC bridge each command from the PC is its own
+  transaction: the line stays low through the gap to the next one, as before, for up to 120 ms (above the
+  100 ms power-cycle a written frame needs to commit), and is released if the PC goes quiet longer.
+- **Older packs with the F0513-family cell readout (hybrid generation):** a charger-locked pack no longer
+  says "Our unlock should hold" on the Battery and Repair screens. The unlock has not been taken by this
+  generation on any pack seen so far, so those screens now show the same caveat as the confirm step
+  ("F0513 chip: unlock may not hold."), in yellow. The unlock stays available (PackScope #2).
+- **Touch boards, Settings:** a tap in the empty space under the list does nothing. It used to count as a tap
+  on the last row and start Calibrate, which the larger 480x320 screen made easy to hit (yukonx, #43).
+- **Old packs read over the F0513 command set** (#36): a cell that reads under 0.5 V is read again before it
+  counts. A pack that misses one answer no longer gets a "resolder sense wire" verdict from a single bad read;
+  a cell that reads 0 V every time keeps its fault verdict, and the finding now names that group instead
+  of the lowest group above 0.1 V.
+- Russian, launcher: when the pack voltage and the verdict do not fit the Battery tile together, the tile
+  shows the verdict alone ("НУЖНА РАЗБЛОКИРОВКА" ran past the tile border on 320x240 screens).
+- **Identified 18 V packs with a high fifth cell reading** (#43 follow-up): the 14.4 V detection for a pack
+  with no model string no longer applies to a pack whose model is known. An 18 V pack with a sense-tap
+  fault on group 5 is again refused as a failed read, instead of being shown as a healthy 4-cell pack.
+- Diagnosis card: the reason line is copied with a length limit, so a longer translation can never
+  overwrite the fault fields next to it.
+
 ## [2.9.0] - 2026-11-19
 
 Russian, Korean/Japanese/Chinese on the ILI9341 CYD, old 14.4 V packs, and a contributed 3.5" board.

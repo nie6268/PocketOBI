@@ -7,6 +7,9 @@ against the real Adafruit_GFX library, with the small fakes in shim/ (the displa
 a GFXcanvas16 framebuffer; GPIO, Serial and the battery bus do nothing). hostsim_main.cpp
 loads a fixture pack and draws each screen; this script turns the frames into PNGs.
 
+With --test it builds the host decode tests instead (hosttest_main.cpp + fakepack.cpp, a
+scripted pack on the OneWire bus), runs them, and exits with their result: no PNGs.
+
 Output (gitignored):  tools/hostsim/out/<build>/<LANG>/<nn>_<screen>.png
                       tools/hostsim/out/<build>/sheet_<LANG>.png   (all screens on one page)
 
@@ -18,6 +21,7 @@ Usage:
     python tools/hostsim/hostsim.py            # default build (EN/FR/DE/ES)
     python tools/hostsim/hostsim.py --asia     # Asia build (EN/JA/KO/VI/ZH/TW; DECISIONS.md D58, D60)
     python tools/hostsim/hostsim.py --asia --board cyd
+    python tools/hostsim/hostsim.py --test     # decode tests, exit code 0 = all passed
 """
 import argparse
 import glob
@@ -68,15 +72,18 @@ def build(args, out):
         f"-DENABLE_CJK={1 if args.asia else 0}", f"-DENABLE_EU={0 if args.asia else 1}",
         f"-DENABLE_VI={1 if args.asia else 0}",
         *(f"-D{d}" for d in args.define),
+        *(["-DPOCKETOBI_HOSTTEST"] if args.test else []),
         "-I", os.path.join(HERE, "shim"), "-I", gfx,
         "-x", "c++", os.path.join(ROOT, "PocketOBI.ino"), "-x", "none",
         *fw,
         os.path.join(gfx, "Adafruit_GFX.cpp"),
         os.path.join(HERE, "shim", "shim_core.cpp"),
-        os.path.join(HERE, "hostsim_main.cpp"),
+        *([os.path.join(HERE, "fakepack.cpp"), os.path.join(HERE, "hosttest_main.cpp")] if args.test
+          else [os.path.join(HERE, "hostsim_main.cpp")]),
         "-o", exe,
     ]
-    print("compiling", "(Asia)" if args.asia else "", "for", args.board, "...")
+    print("compiling", "decode tests" if args.test else "", "(Asia)" if args.asia else "",
+          "for", args.board, "...")
     r = subprocess.run(cmd)
     if r.returncode:
         sys.exit("build failed")
@@ -128,7 +135,14 @@ def main():
     ap.add_argument("--out", help="output folder (default tools/hostsim/out/<board>[-asia])")
     ap.add_argument("-D", "--define", action="append", default=[], metavar="NAME=VALUE",
                     help="extra build flag, repeatable, e.g. -D ENABLE_KO=0 (a Japanese-only Asia build)")
+    ap.add_argument("--test", action="store_true",
+                    help="build and run the host decode tests (fakepack) instead of rendering")
     args = ap.parse_args()
+
+    if args.test:
+        with tempfile.TemporaryDirectory(prefix="hosttest-") as work:
+            r = subprocess.run([build(args, work)])
+        sys.exit(r.returncode)
 
     out = args.out or os.path.join(HERE, "out", args.board + ("-asia" if args.asia else ""))
     shutil.rmtree(out, ignore_errors=True)       # best effort: a synced folder may hold a lock

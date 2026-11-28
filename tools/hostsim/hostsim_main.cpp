@@ -4,7 +4,7 @@
 // code (display.cpp & co., compiled for the PC) in every language, one image per screen.
 // Usage: hostsim <out_dir>   -> <out_dir>/<LANG>/<nn>_<screen>.ppm  (hostsim.py makes PNGs)
 // Guarded whole: PlatformIO builds every .cpp under src_dir = . (D14), this one included.
-#ifdef POCKETOBI_HOSTSIM
+#if defined(POCKETOBI_HOSTSIM) && !defined(POCKETOBI_HOSTTEST)   // the decode tests have their own main()
 #include "../../pocketobi.h"
 #include "../../decode.h"
 #include "../../display.h"
@@ -70,16 +70,17 @@ static void saveFrame(const char* name) {
 }
 
 #if BOARD_HAS_TOUCH
-// Calibration blocks on the touch panel: grab the first target screen from inside it
-// (on the first getPoint()), then the "saved" screen it ends on is the normal frame.
-static bool g_calShot = false;
+// Calibration blocks on the touch panel: grab the intro, then the first target screen, from
+// inside it (the driver's poll calls the hook, many times per screen), then the "saved" screen
+// it ends on is the normal frame. The intro has the header bar in its top-right corner, the
+// target screen does not: one pixel tells them apart (a whole-frame compare per poll is too slow).
+static int g_calShot = 0;
 static void calHook() {
-  if (g_calShot) return;
-  g_calShot = true;
-  saveFrame("calibrate_tap");
+  if (g_calShot == 0) { saveFrame("calibrate_intro"); g_calShot = 1; return; }
+  if (g_calShot == 1 && tft.getPixel(tft.width() - 3, 3) == COL_BG) { saveFrame("calibrate_tap"); g_calShot = 2; }
 }
 static void sCalibrate() {
-  state = SETTINGS; g_calShot = false;
+  state = SETTINGS; g_calShot = 0;
   hostsimTouchHook = calHook;
   calibrateTouch();
   hostsimTouchHook = nullptr;
@@ -97,9 +98,18 @@ static void sPack14(bool locked) {
   memset(bat.msg, 0, 32);
   if (locked) { bat.msg[21] = 0x7E; bat.chargerLocked = true; }
 }
+// An F0513 hybrid, as on the BL1820B of PackScope #2: model silent, one temperature sensor, charger lock.
+static void sHybrid() {
+  strcpy(bat.model, "LXT ?");
+  bat.boardTempValid = false;
+  memset(bat.msg, 0, 32); bat.msg[21] = 0x7E; bat.chargerLocked = true;
+}
 static const Screen SCREENS[] = {
   { "splash",         [] { state = LAUNCHER; drawSplash(); }, true },
   { "launcher",       [] { state = LAUNCHER; launcherIndex = 0; } },
+  // Charger-locked pack: the Battery tile carries the longest verdict word (RU, 2.9.1).
+  { "launcher_locked", [] { memset(bat.msg, 0, 32); bat.msg[21] = 0x7E; bat.chargerLocked = true;
+                            state = LAUNCHER; launcherIndex = 0; } },
   { "battery_overview", [] { sBattery(0); } },
   { "battery_health", [] { sBattery(1); } },
   { "battery_identity", [] { sBattery(2); } },
@@ -126,6 +136,10 @@ static const Screen SCREENS[] = {
   { "bl14_confirm_unlock", [] { sPack14(true); state = CONFIRM_UNLOCK; } },
   { "nopack_overview", [] { bat.valid = false; sBattery(0); } },
   { "nopack_repair",  [] { bat.valid = false; state = REPAIR_DIAG; } },
+  // F0513 hybrid (D62: AA frame answers, cells from the F0513 set -> boardTempValid=false), charger-
+  // locked, silent model: the overview and the Repair diagnosis carry the caveat, not "should hold".
+  { "hybrid_overview", [] { sHybrid(); sBattery(0); } },
+  { "hybrid_repair",  [] { sHybrid(); state = REPAIR_DIAG; } },
 #if BOARD_HAS_TOUCH
   { "calibrate_saved", sCalibrate, true },
 #endif

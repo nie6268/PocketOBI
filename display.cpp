@@ -276,6 +276,7 @@ static void drawLauncherTile(int i) {
   if (i == 0) {                                  // Battery: V + verdict under the icon (verdict colour)
     char ms[48];
     if (bat.valid) { snprintf(ms, sizeof(ms), "%.2fV %s", bat.packVoltage, verdictText(v));
+                     if (txtW(ms, 1) > tw - 8) snprintf(ms, sizeof(ms), "%s", verdictText(v));  // RU: verdict only
                      tft.setTextColor(verdictColor(v)); }
     else           { snprintf(ms, sizeof(ms), "%s", tr(S_NO_PACK)); tft.setTextColor(COL_MUTED); }
     tft.setFont(NULL); tft.setTextSize(1);
@@ -293,6 +294,16 @@ void drawLauncher() {
 // What the repair diagnosis concluded, in one place: the Overview status line and the Repair
 // wizard read the same finding (single source, never two parallel rules).
 struct Finding { const char *title; uint16_t color; char line2[64]; HwFault hw; int grp; uint8_t causes; };
+// Bounded copy into line2: a translated reason can outgrow 63 bytes (RU S_WHY_THERM_CHECK is 62),
+// and an unbounded strcpy would run into hw / grp / causes. Cut on a UTF-8 character boundary.
+static void setLine2(Finding &f, const char *s) {
+  size_t n = strlen(s);
+  if (n >= sizeof(f.line2)) {
+    n = sizeof(f.line2) - 1;
+    while (n && ((uint8_t)s[n] & 0xC0) == 0x80) n--;   // s[n] continues a character: cut before it
+  }
+  memcpy(f.line2, s, n); f.line2[n] = 0;
+}
 static void diagFinding(Finding &f) {
   const bool isF0513 = strcmp(bat.commandVersion, "F0513") == 0;
   char action[64];
@@ -307,41 +318,45 @@ static void diagFinding(Finding &f) {
       case HW_IMBALANCE:  f.title = tr(S_HW_IMB);    break;
       default:            f.title = tr(S_HW_THERM);  break;
     }
-    strncpy(f.line2, action, sizeof(f.line2)); f.line2[sizeof(f.line2) - 1] = 0;
+    setLine2(f, action);
   } else if (bat.latchedFault) {
     // Checked BEFORE "not locked": a latched marker means the BMS memorised a fault even if the
     // pack isn't charger-locked right now (matches computeVerdict -> V_SUSPECT).
     f.title = tr(S_BMS_MEMORISED); f.color = COL_ORANGE;
-    if (bat.odEventCount)            strcpy(f.line2, tr(S_WHY_OD));
-    else if (bat.olEventCount)       strcpy(f.line2, tr(S_WHY_OL));
-    else if (bat.healthEstPct < 50)  strcpy(f.line2, tr(S_WHY_WEAR));   // <50% => >~448 cycles
-    else                             strcpy(f.line2, tr(S_WHY_UNCLEAR));
+    if (bat.odEventCount)            setLine2(f, tr(S_WHY_OD));
+    else if (bat.olEventCount)       setLine2(f, tr(S_WHY_OL));
+    else if (bat.healthEstPct < 50)  setLine2(f, tr(S_WHY_WEAR));   // <50% => >~448 cycles
+    else                             setLine2(f, tr(S_WHY_UNCLEAR));
   } else if (!f.causes && !bat.locked) {
     f.title = tr(S_NO_LOCK_NO_FAULT); f.color = COL_GREEN;
-    strcpy(f.line2, tr(S_PACK_HEALTHY));
+    setLine2(f, tr(S_PACK_HEALTHY));
   } else if (!f.causes && bat.valid && !packReadOnly()) {
     // Only the error register (nybble 40) is set: no charger lock for the unlock to clear, Tools >
     // Reset error does it. Same pointer as the Repair toast (ui_nav.cpp), never "unlock should hold".
     f.title = tr(S_RESET_ERROR); f.color = COL_YELLOW;
-    strcpy(f.line2, tr(S_TOAST_USE_RESET));
+    setLine2(f, tr(S_TOAST_USE_RESET));
   } else if (packReadOnly()) {
     // 14.4 V pack: the lock (or the stored error) is a fact, no write is offered (#28). Name which.
     f.title = f.causes ? tr(S_CHARGER_LOCK) : tr(S_RESET_ERROR); f.color = COL_YELLOW;
     snprintf(f.line2, sizeof(f.line2), "LXT 14.4V - %s", tr(S_W_NOT_SUPPORTED));
   } else {
-    // Charger-locked, no fault marker -> a false lockout our unlock should clear.
-    f.title = tr(S_FALSE_LOCKOUT); f.color = COL_GREEN;
-    strcpy(f.line2, tr(S_UNLOCK_SHOULD_HOLD));
+    // Charger-locked, no fault marker -> a false lockout our unlock should clear. Except on the
+    // F0513 hybrid generation (cells from the F0513 set -> boardTempValid=false, D62): the BMS did
+    // not take the frame write on two packs (BL1830, BL1820B 2022), so "should hold" would be a
+    // promise we know fails. Say the same caveat as the confirm screen, in yellow, here already.
+    f.title = tr(S_FALSE_LOCKOUT);
+    if (bat.boardTempValid) { f.color = COL_GREEN;  setLine2(f, tr(S_UNLOCK_SHOULD_HOLD)); }
+    else                    { f.color = COL_YELLOW; setLine2(f, tr(S_W_F0513_UNVALIDATED)); }
   }
   // Recoverable over-discharge (cells below the healthy minimum, no imbalance): computeVerdict says
   // SUSPECT, so the line must not claim "no fault".
   if (f.hw == HW_NONE && f.color == COL_GREEN && computeVerdict() == V_SUSPECT && !thermistorSuspect()) {
-    f.title = tr(S_WHY_OD); strcpy(f.line2, tr(S_WHY_OD)); f.color = COL_ORANGE;
+    f.title = tr(S_WHY_OD); setLine2(f, tr(S_WHY_OD)); f.color = COL_ORANGE;
   }
   // Spread-only thermistor suspicion: add a check note on an otherwise-clean finding (the verdict
   // already reflects it via computeVerdict -> V_SUSPECT when not charger-locked).
   if (f.hw == HW_NONE && f.color == COL_GREEN && thermistorSuspect()) {
-    strcpy(f.line2, tr(S_WHY_THERM_CHECK));
+    setLine2(f, tr(S_WHY_THERM_CHECK));
     f.color = COL_ORANGE;
   }
 }
@@ -395,7 +410,7 @@ void drawBatteryOverview() {
 void drawBatteryHealth() {
   header(tr(S_HDR_HEALTH));
   drawPageDots(1, 3);
-  char buf[40];
+  char buf[64];                                       // a translated caption + " - SOC raw %u"; Cyrillic is 2 bytes a letter
   if (!bat.valid) {                                   // no pack: same frame, no stale value
     const int y1 = CONTENT_Y + STATUS_H + CARD_GAP, x2 = GUTTER + COL2_W + CARD_GAP, y2 = y1 + KPI_H + CARD_GAP;
     conditionCard(CONTENT_Y, tr(S_CONDITION), -1, COL_MUTED2, "");
@@ -410,20 +425,20 @@ void drawBatteryHealth() {
   // Condition card: OUR OWN cycle-based estimate (not the BMS's SOH gauge); the raw charge level
   // (D4 0x150 / SOC) is exposed next to it as a diagnostic value.
   const int cx = GUTTER, y0 = CONTENT_Y;
-  if (bat.extValid) snprintf(buf, sizeof(buf), "est. from cycles - SOC raw %u", bat.socRaw);
-  else              snprintf(buf, sizeof(buf), "est. from cycles");
+  if (bat.extValid) snprintf(buf, sizeof(buf), "%s - SOC raw %u", tr(S_EST_CYCLES), bat.socRaw);
+  else              snprintf(buf, sizeof(buf), "%s", tr(S_EST_CYCLES));
   conditionCard(y0, tr(S_CONDITION), soh, cc, buf);
   // 2x2 grid: wear counters (D4) with the raw count as the primary figure and the "% of cycles"
   // only as a soft hint in parentheses. When the extended data is unavailable show "-", not "none".
   const int y1 = y0 + STATUS_H + CARD_GAP, kw = COL2_W, kx2 = cx + kw + CARD_GAP;
   uint16_t col;
   if (!bat.extValid) strcpy(buf, "-");
-  else if (bat.odEventCount == 0) strcpy(buf, tr(S_NONE));
+  else if (bat.odEventCount == 0) snprintf(buf, sizeof(buf), "%s", tr(S_NONE));
   else snprintf(buf, sizeof(buf), "%u (%u%%)", bat.odEventCount, bat.odWearPct);
   col = !bat.extValid ? COL_MUTED : (bat.odEventCount ? COL_TEXT : COL_GREEN);
   kpiCard(cx, y1, kw, KPI_H, iconBattery, tr(S_OVERDISCHARGE), buf, col);
   if (!bat.extValid) strcpy(buf, "-");
-  else if (bat.olEventCount == 0) strcpy(buf, tr(S_NONE));
+  else if (bat.olEventCount == 0) snprintf(buf, sizeof(buf), "%s", tr(S_NONE));
   else snprintf(buf, sizeof(buf), "%u (%u%%)", bat.olEventCount, bat.olWearPct);
   col = !bat.extValid ? COL_MUTED : (bat.olEventCount ? COL_TEXT : COL_GREEN);
   kpiCard(kx2, y1, kw, KPI_H, iconBanks, tr(S_OVERLOAD), buf, col);
@@ -517,7 +532,7 @@ void drawWizardDiag() {
   drawCheckRow(GUTTER, ry + 2 * CHECK_ROW_H, CONTENT_W, tr(S_THERMISTOR),
                th == CHECK_FAULT ? tr(S_FAULTV) : (th == CHECK_SUSPECT ? "?" : tr(S_OKV)), th);
   char cv[12]; const bool cbad = (f.hw == HW_SENSE_WIRE || f.hw == HW_WEAK_CELL || f.hw == HW_IMBALANCE);
-  if (cbad) snprintf(cv, sizeof(cv), "G%d", f.grp); else strcpy(cv, tr(S_OKV));
+  if (cbad) snprintf(cv, sizeof(cv), "G%d", f.grp); else snprintf(cv, sizeof(cv), "%s", tr(S_OKV));
   drawCheckRow(GUTTER, ry + 3 * CHECK_ROW_H, CONTENT_W, tr(S_CELLS), cv, cbad ? CHECK_FAULT : CHECK_OK);
   // Only a lock with no hardware fault continues; otherwise the status card already says why (fix
   // the hardware first / nothing to repair) and a click just repeats it as a toast.
@@ -947,6 +962,9 @@ int touchHit(UiState s, int sx, int sy) {
       return toolPage() * TOOLS_PER_PAGE + (i < 0 ? 0 : i);
     }
     case SETTINGS: {
+      // A tap under the last row is nowhere (-1): clamping it to the last row opened Calibrate from
+      // the empty space under the list, which a 480x320 screen has plenty of (#43).
+      if (sy >= CONTENT_Y + (settingsCount - 1) * settingsPitch() + LIST_ROW_H) return -1;
       int i = (sy - CONTENT_Y) / settingsPitch();
       return i < 0 ? 0 : (i >= settingsCount ? settingsCount - 1 : i);
     }

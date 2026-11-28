@@ -76,6 +76,13 @@ void serviceBridge() {
   } else {
     outLen = 0;
   }
+  // Each PC frame is its own transaction, so the PC's operations (PackScope's unlock: arm, write,
+  // store, then TESTMODE, reset, exit) are cut by the gaps between frames. 2.9.0 held ENABLE low
+  // through those gaps, and the bridge unlock relies on that low to commit the stored frame (the
+  // device does it with busPowerCycle()'s 100 ms low). Hold it ENABLE_BRIDGE_IDLE_MS, not the
+  // device's 35 ms: the low after a command lasts the whole gap, as in 2.9.0, up to 120 ms (above
+  // the 100 ms power-cycle), and a PC that stops talking still gets the line released (#41, #88).
+  if (cmd == 0x31 || cmd == 0x32 || cmd == 0x33 || cmd == 0xCC) enableOff(true, ENABLE_BRIDGE_IDLE_MS);
 
   Serial.write((uint8_t)cmd);
   Serial.write((uint8_t)rspLen);

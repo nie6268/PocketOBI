@@ -31,6 +31,20 @@ You also need the **Adafruit GFX Library**. If you have built PocketOBI with the
 IDE or PlatformIO it is already installed and found automatically; otherwise pass
 `--gfx <folder>`. Any C++17 compiler works in place of zig: `--cxx g++`.
 
+## Decode tests
+
+```
+python tools/hostsim/hostsim.py --test    # exit code 0 = every case passed
+```
+
+Builds the same firmware sources with `fakepack.cpp`, a scripted pack on the OneWire bus, in
+place of the silent one, and runs `hosttest_main.cpp`: each case scripts what the pack answers
+(by the bytes the firmware writes: `CC D7 00 00 FF`, `33 AA 00`, ...; several answers per command,
+the last one repeating), then calls the real `readAllData()`, `computeVerdict()` and
+`findHardwareFault()` and checks the result. A missed answer, a half answer or a silent model is
+one line. CI runs it on every firmware push. Add a case when a tester reports a pack behaviour,
+before the fix, so the fix is shown to change it. Pack values are illustrative, not captures.
+
 ## How it works
 
 | File | Role |

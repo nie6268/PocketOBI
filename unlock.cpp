@@ -82,7 +82,7 @@ void buildRepairedFrame(const uint8_t *in, uint8_t *out) {
 // ROM bytes, write `dataLen` bytes, read `rspLen` bytes. Mirrors the documented
 // cmd_33 flow (the ROM is always clocked out after 0x33, even when unused).
 void ow33(const uint8_t *data, uint8_t dataLen, uint8_t *rsp, uint8_t rspLen) {
-  digitalWrite(ENABLE_PIN, HIGH);
+  enableOn();
   delay(400);
   makita.reset();
   delayMicroseconds(400);
@@ -91,7 +91,7 @@ void ow33(const uint8_t *data, uint8_t dataLen, uint8_t *rsp, uint8_t rspLen) {
   for (int i = 0; i < dataLen; i++) mkWrite(data[i]);
   delayMicroseconds(400);
   for (int i = 0; i < rspLen; i++) rsp[i] = mkRead();
-  digitalWrite(ENABLE_PIN, LOW);
+  enableOff();
 
 #if COMM_DEBUG
   Serial.print("ow33 wr:");
@@ -116,7 +116,8 @@ void writeFrame(const uint8_t *frame) {
 
   uint8_t store[2] = {0x55, 0xA5};
   ow33(store, 2, nullptr, 0);               // store / commit
-  delay(30);
+  enableOff(false);                          // held low until busPowerCycle() commits it (#41):
+  delay(30);                                 // the progress redraw in between must not release it
 }
 // Full unlock/repair operation on the currently-read battery. Returns the lock
 // causes still present after the attempt (0 = fully unlocked). Assumes bat.msg

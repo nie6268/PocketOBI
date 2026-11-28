@@ -225,7 +225,8 @@ BatteryData bat;
 // Inter-byte timing taken from the official ArduinoOBI firmware (main.cpp):
 // 90 us between each byte written or read, 400 us after each reset.
 // The intra-bit timing (slots) is handled by OneWire2 itself.
-// ENABLE_PIN is driven HIGH + 400 ms wait before every transaction.
+// ENABLE_PIN is driven HIGH + 400 ms wait before every transaction, and released
+// between operations (enableOn/enableOff/enableIdleTick in protocol.cpp, #41).
 
 
 
@@ -335,8 +336,7 @@ void setup() {
   Serial.setTxTimeoutMs(0);
 #endif
 
-  pinMode(ENABLE_PIN, OUTPUT);
-  digitalWrite(ENABLE_PIN, LOW);
+  enableBoot();                                  // low, then released during the splash (#41)
 
 #if BOARD_HAS_ENCODER
   pinMode(ENC_BTN, INPUT_PULLUP);
@@ -428,6 +428,9 @@ void loop() {
   // Encoder polling: to be called as often as possible.
   encoder->tick();
 #endif
+
+  // Release ENABLE once the bus has been quiet for a moment (#41, see enableIdleTick()).
+  enableIdleTick();
 
   // PC bridge mode: act as a USB<->OneWire bridge for the PC app (only while active).
 #if !UI_DEMO

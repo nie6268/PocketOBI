@@ -17,16 +17,12 @@ body:
     validations:
       required: true
 
-  - type: dropdown
+  - type: input
     id: fw-version
     attributes:
       label: Firmware version
-      description: Shown on the Info screen (e.g. "v2.1.0"). If you're not on the latest, please try updating first — many read issues are already fixed.
-      options:
-        - v2.1.0 (latest)
-        - v1.0.0
-        - Built from source (main / a branch)
-        - Older / not sure
+      description: Shown on the Info screen. If you're not on the [latest release](https://github.com/TheRepairforge/PocketOBI/releases/latest), please try updating first — many read issues are already fixed. Built from source? Say which branch or commit.
+      placeholder: e.g. "v2.9.0, web flasher" or "built from main, commit abc1234"
     validations:
       required: true
 

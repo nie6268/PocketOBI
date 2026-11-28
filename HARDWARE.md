@@ -78,8 +78,9 @@ Notes:
   ESP32 and the pack is **mandatory** for communication.
 - R1 pulls DATA up to 3V3, R2 pulls ENABLE up to 3V3. **Both 470 Ω** (single BOM
   value). DATA *needs* the stronger 470 Ω (the pack loads the line near the 3.3 V
-  input threshold); ENABLE's pull-up value is non-critical (ENABLE is a driven
-  output), so it uses 470 Ω too for uniformity. Both resistors required.
+  input threshold). ENABLE is driven during a transaction but released between
+  operations, so R2 sets its idle level (high); its value is non-critical and it
+  uses 470 Ω too for uniformity. Both resistors required.
 - **No B+ (18 V) anywhere on this board** — the adapter does not route it into the
   JST, and we do not wire it. Put No-Connect flags on the unused JST pins.
 - M1.BLK tied to 3V3 = backlight always on.
